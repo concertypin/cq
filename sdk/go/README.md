@@ -81,7 +81,7 @@ The local store is pluggable. By default the SDK opens a SQLite file at the path
   c, err := cq.NewClient(cq.WithStore(cq.NewInMemoryStore()))
   ```
 
-- **Bring your own.** Implement the `cq.Store` interface (`Unit`, `All`, `Insert`, `Update`, `Delete`, `Query`, `Stats`, `Close`) and inject it with `cq.WithStore`. Reuse the shared ranker `cq.RankCandidates` from your `Query`, and verify the implementation against the conformance suite in [`storetest`](./storetest).
+- **Bring your own.** Implement the `cq.Store` interface (`Unit`, `All`, `Insert`, `Update`, `Delete`, `Query`, `Stats`, `Close`) and inject it with `cq.WithStore`. Reuse the shared ranker `cq.RankCandidates` from your `Query`, and verify the implementation against the conformance suite in [`storetest`]({{REPO_TREE_URL}}/sdk/go/storetest).
 
 Selection precedence: `WithStore` > `CQ_LOCAL_DATABASE_URL` > `CQ_LOCAL_DB_PATH`/`WithLocalDBPath` > XDG default. A first-party PostgreSQL adapter is planned as a separate module; until then a `postgres://` URL returns a clear error.
 
@@ -91,13 +91,13 @@ Every knowledge unit has a tier: `cq.Local` (on-disk SQLite, never leaves the ma
 
 With a remote configured, `Propose` sends the unit to the remote and returns it tagged `cq.Private`; with no remote, or if the remote is unreachable, it writes the unit locally as `cq.Local`.
 
-See the [top-level README](../../README.md#knowledge-tiers) for the full description.
+See the [top-level README](../../README.md) for the full description.
 
 ## Storage Format
 
 Knowledge units are stored as JSON in SQLite. The database schema is shared
 with the [cq Python SDK](../../sdk/python/) — both SDKs read and write the
-same `local.db` file. The [JSON Schema definitions](../../schema/) are the
+same `local.db` file. The [JSON Schema definitions]({{REPO_TREE_URL}}/schema) are the
 source of truth.
 
 ## Development
