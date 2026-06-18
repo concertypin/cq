@@ -33,7 +33,7 @@ def test_codex_global_target_default():
 def test_codex_global_target_override(monkeypatch):
     """CODEX_MARKETPLACE_DIR env var overrides the target path."""
     monkeypatch.setenv("CODEX_MARKETPLACE_DIR", "/custom/path")
-    assert CodexHost().global_target() == Path("/custom/path")
+    assert CodexHost().global_target() == Path("/custom/path").resolve()
 
 
 def test_codex_project_target_raises():
@@ -56,7 +56,7 @@ def test_codex_install_dry_run(tmp_path, plugin_root):
     )
     results = CodexHost().install(ctx)
 
-    assert all(r.action == Action.SKIPPED for r in results)
+    assert all(r.action in (Action.SKIPPED, Action.UNCHANGED) for r in results)
     # Nothing was written to the target directory
     assert len(list(target.iterdir())) == 0
 
@@ -88,8 +88,8 @@ def test_codex_install_creates_marketplace(tmp_path, plugin_root):
     # Just verify the _prepare_marketplace call would not crash
     host = CodexHost()
     results = host.install(ctx)
-    assert len(results) == 3  # prepare, register marketplace, register plugin
-    assert all(r.action == Action.SKIPPED for r in results)
+    assert len(results) == 4  # prepare, ensure binary, register marketplace, register plugin
+    assert all(r.action in (Action.SKIPPED, Action.UNCHANGED) for r in results)
 
 
 def test_run_codex_returns_none_on_missing_cli():
