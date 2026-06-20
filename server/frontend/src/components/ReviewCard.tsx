@@ -6,7 +6,7 @@ import {
   SNAP_BACK_MS,
 } from "../hooks/useCardDrag"
 import type { KnowledgeUnit, Selection } from "../types"
-import { timeAgo } from "../utils"
+import { confidenceColor, timeAgo } from "../utils"
 import { DomainTags } from "./DomainTags"
 
 interface Props {
@@ -32,13 +32,6 @@ const ACTION_BOX_STYLES: Record<string, string> = {
   reject:
     "bg-red-50 dark:bg-red-950/40 border-red-500 text-red-600 dark:text-red-400",
   skip: "bg-slate-50 dark:bg-slate-800 border-slate-400 text-slate-500 dark:text-slate-300",
-}
-
-function confidenceColor(c: number): string {
-  if (c < 0.3) return "text-red-600 dark:text-red-400"
-  if (c < 0.5) return "text-amber-600 dark:text-amber-400"
-  if (c < 0.7) return "text-yellow-500 dark:text-yellow-400"
-  return "text-green-600 dark:text-green-400"
 }
 
 export const ReviewCard = forwardRef<HTMLDivElement, Props>(function ReviewCard(

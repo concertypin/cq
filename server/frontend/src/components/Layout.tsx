@@ -7,17 +7,12 @@ export function Layout() {
   const { username, logout } = useAuth()
   const location = useLocation()
   const [pendingCount, setPendingCount] = useState(0)
-  const [dark, setDark] = useState(false)
-  const onDashboard = location.pathname === "/dashboard"
-
-  useEffect(() => {
+  const [dark, setDark] = useState(() => {
     const stored = localStorage.getItem("cq-dark-mode")
-    if (stored !== null) {
-      setDark(stored === "true")
-    } else {
-      setDark(window.matchMedia("(prefers-color-scheme: dark)").matches)
-    }
-  }, [])
+    if (stored !== null) return stored === "true"
+    return window.matchMedia("(prefers-color-scheme: dark)").matches
+  })
+  const onDashboard = location.pathname === "/dashboard"
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark)

@@ -26,6 +26,23 @@ const CONFIDENCE_COLORS: Record<string, string> = {
   "0.8-1.0": "bg-green-400",
 }
 
+function useIsDark() {
+  const [isDark, setIsDark] = useState(
+    document.documentElement.classList.contains("dark"),
+  )
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains("dark"))
+    })
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    })
+    return () => observer.disconnect()
+  }, [])
+  return isDark
+}
+
 export function DashboardPage() {
   const { setPendingCount } = useOutletContext<{
     setPendingCount: (n: number) => void
@@ -36,6 +53,15 @@ export function DashboardPage() {
   const [listFilter, setListFilter] = useState<ListFilter | null>(null)
   const closeModal = useCallback(() => setSelectedUnitId(null), [])
   const closeListModal = useCallback(() => setListFilter(null), [])
+  const isDark = useIsDark()
+  const chartColors = {
+    axis: isDark ? "#94a3b8" : "#64748b",
+    grid: isDark ? "#475569" : "#cbd5e1",
+    tooltipBg: isDark ? "#1e293b" : "#ffffff",
+    tooltipBorder: isDark ? "#334155" : "#e2e8f0",
+    tooltipText: isDark ? "#f1f5f9" : "#1e293b",
+    legend: isDark ? "#cbd5e1" : "#475569",
+  }
 
   useEffect(() => {
     function fetchStats() {
@@ -239,24 +265,24 @@ export function DashboardPage() {
                 <LineChart data={trendData}>
                   <XAxis
                     dataKey="date"
-                    tick={{ fontSize: 10, fill: "#94a3b8" }}
-                    stroke="#475569"
+                    tick={{ fontSize: 10, fill: chartColors.axis }}
+                    stroke={chartColors.grid}
                   />
                   <YAxis
-                    tick={{ fontSize: 10, fill: "#94a3b8" }}
-                    stroke="#475569"
+                    tick={{ fontSize: 10, fill: chartColors.axis }}
+                    stroke={chartColors.grid}
                     allowDecimals={false}
                   />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "#1e293b",
-                      border: "1px solid #334155",
+                      backgroundColor: chartColors.tooltipBg,
+                      border: `1px solid ${chartColors.tooltipBorder}`,
                       borderRadius: "6px",
-                      color: "#f1f5f9",
+                      color: chartColors.tooltipText,
                       fontSize: "12px",
                     }}
                   />
-                  <Legend wrapperStyle={{ fontSize: 11, color: "#cbd5e1" }} />
+                  <Legend wrapperStyle={{ fontSize: 11, color: chartColors.legend }} />
                   <Line
                     type="monotone"
                     dataKey="proposed"
