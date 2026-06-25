@@ -26,7 +26,7 @@ const CARD_STYLES: Record<string, string> = {
 
 const ACTION_BOX_STYLES: Record<string, string> = {
   neutral:
-    "bg-indigo-50 dark:bg-indigo-950/40 border-indigo-500 text-indigo-500",
+    "bg-indigo-50 dark:bg-indigo-950/40 border-indigo-500 text-indigo-500 dark:text-indigo-400",
   approve:
     "bg-green-50 dark:bg-green-950/40 border-green-500 text-green-600 dark:text-green-400",
   reject:
