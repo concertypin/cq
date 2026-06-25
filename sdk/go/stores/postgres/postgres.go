@@ -2,7 +2,7 @@
 //
 // Construct with New and pass to the client via cq.WithStore:
 //
-//	store, err := postgres.New("postgres://localhost/cq")
+//	store, err := postgres.New(ctx, "postgres://localhost/cq")
 //	client, err := cq.NewClient(cq.WithStore(store))
 package postgres
 
@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	cq "github.com/mozilla-ai/cq/sdk/go"
 )
 
@@ -25,6 +26,10 @@ const (
 	keyLastWriter  = "last_writer"
 	writerTagFmt   = "cq-go-sdk/postgres go/%s"
 )
+
+// rollbackTimeout bounds the deferred rollback cleanup so it cannot block
+// indefinitely on an unresponsive server.
+const rollbackTimeout = 5 * time.Second
 
 const schemaDDL = `
 CREATE TABLE IF NOT EXISTS knowledge_units (
@@ -84,7 +89,7 @@ type Store struct {
 // The connection string must be a valid PostgreSQL URL or DSN.
 // New validates the string, connects, pings the server, and ensures the
 // schema exists before returning.
-func New(connString string) (*Store, error) {
+func New(ctx context.Context, connString string) (*Store, error) {
 	if connString == "" {
 		return nil, fmt.Errorf("connection string must not be empty")
 	}
@@ -92,16 +97,16 @@ func New(connString string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid connection string: %w", err)
 	}
-	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("creating connection pool: %w", err)
 	}
-	if err := pool.Ping(context.Background()); err != nil {
+	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("connecting to server: %w", err)
 	}
 	s := &Store{pool: pool}
-	if err := s.ensureSchema(); err != nil {
+	if err := s.ensureSchema(ctx); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("ensuring schema: %w", err)
 	}
@@ -109,13 +114,13 @@ func New(connString string) (*Store, error) {
 }
 
 // All returns every knowledge unit in the store.
-func (s *Store) All() ([]cq.KnowledgeUnit, error) {
+func (s *Store) All(ctx context.Context) ([]cq.KnowledgeUnit, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
 		return nil, cq.ErrStoreClosed
 	}
-	return s.scanUnits(context.Background(), sqlSelectAll)
+	return s.scanUnits(ctx, sqlSelectAll)
 }
 
 // Close releases the connection pool. Safe to call more than once.
@@ -132,13 +137,13 @@ func (s *Store) Close() error {
 
 // Delete removes the knowledge unit with the given ID.
 // Returns an error if no unit with that ID exists.
-func (s *Store) Delete(id string) error {
+func (s *Store) Delete(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
 		return cq.ErrStoreClosed
 	}
-	ct, err := s.pool.Exec(context.Background(), sqlDeleteUnit, id)
+	ct, err := s.pool.Exec(ctx, sqlDeleteUnit, id)
 	if err != nil {
 		return err
 	}
@@ -151,7 +156,7 @@ func (s *Store) Delete(id string) error {
 // Insert stores a new knowledge unit.
 // Domains are normalized before storage.
 // Returns an error on duplicate ID or empty domains after normalization.
-func (s *Store) Insert(ku cq.KnowledgeUnit) error {
+func (s *Store) Insert(ctx context.Context, ku cq.KnowledgeUnit) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -166,13 +171,11 @@ func (s *Store) Insert(ku cq.KnowledgeUnit) error {
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	// Rollback is a no-op after Commit; the returned error is not actionable.
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer rollback(tx)
 	if _, err := tx.Exec(ctx, sqlInsertUnit, ku.ID, data); err != nil {
 		return fmt.Errorf("inserting unit %s: %w", ku.ID, err)
 	}
@@ -184,7 +187,7 @@ func (s *Store) Insert(ku cq.KnowledgeUnit) error {
 
 // Query returns knowledge units whose domain tags overlap with the query,
 // ranked by relevance and confidence, truncated to the limit.
-func (s *Store) Query(params cq.QueryParams) (cq.StoreQueryResult, error) {
+func (s *Store) Query(ctx context.Context, params cq.QueryParams) (cq.StoreQueryResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -197,7 +200,7 @@ func (s *Store) Query(params cq.QueryParams) (cq.StoreQueryResult, error) {
 	if len(nq.Domains) == 0 {
 		return cq.StoreQueryResult{}, nil
 	}
-	candidates, err := s.scanUnits(context.Background(), sqlQueryByDomains, nq.Domains)
+	candidates, err := s.scanUnits(ctx, sqlQueryByDomains, nq.Domains)
 	if err != nil {
 		return cq.StoreQueryResult{}, err
 	}
@@ -208,7 +211,7 @@ func (s *Store) Query(params cq.QueryParams) (cq.StoreQueryResult, error) {
 // Stats returns aggregated store statistics including unit counts per domain,
 // the most recently inserted units, and confidence distribution across the
 // canonical buckets.
-func (s *Store) Stats(recentLimit int) (cq.StoreStats, error) {
+func (s *Store) Stats(ctx context.Context, recentLimit int) (cq.StoreStats, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -217,7 +220,6 @@ func (s *Store) Stats(recentLimit int) (cq.StoreStats, error) {
 	if recentLimit < 0 {
 		return cq.StoreStats{}, fmt.Errorf("recent limit must be non-negative: %d", recentLimit)
 	}
-	ctx := context.Background()
 	totalCount, err := s.countUnits(ctx)
 	if err != nil {
 		return cq.StoreStats{}, err
@@ -244,14 +246,14 @@ func (s *Store) Stats(recentLimit int) (cq.StoreStats, error) {
 }
 
 // Unit returns the knowledge unit with the given ID, or nil when absent.
-func (s *Store) Unit(id string) (*cq.KnowledgeUnit, error) {
+func (s *Store) Unit(ctx context.Context, id string) (*cq.KnowledgeUnit, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
 		return nil, cq.ErrStoreClosed
 	}
 	var data []byte
-	err := s.pool.QueryRow(context.Background(), sqlSelectByID, id).Scan(&data)
+	err := s.pool.QueryRow(ctx, sqlSelectByID, id).Scan(&data)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -268,7 +270,7 @@ func (s *Store) Unit(id string) (*cq.KnowledgeUnit, error) {
 // Update replaces an existing knowledge unit.
 // Domains are re-normalized and the domain index is rebuilt.
 // Returns an error if no unit with that ID exists.
-func (s *Store) Update(ku cq.KnowledgeUnit) error {
+func (s *Store) Update(ctx context.Context, ku cq.KnowledgeUnit) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -283,13 +285,11 @@ func (s *Store) Update(ku cq.KnowledgeUnit) error {
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	// Rollback is a no-op after Commit; the returned error is not actionable.
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer rollback(tx)
 	ct, err := tx.Exec(ctx, sqlUpdateUnit, data, ku.ID)
 	if err != nil {
 		return err
@@ -345,12 +345,11 @@ func (s *Store) countUnits(ctx context.Context) (int, error) {
 // ensureSchema creates the tables and indexes if they do not exist, then
 // stamps the writer metadata so cross-SDK diagnostics can identify the
 // last SDK that wrote to the database.
-func (s *Store) ensureSchema() error {
-	ctx := context.Background()
+func (s *Store) ensureSchema(ctx context.Context) error {
 	if _, err := s.pool.Exec(ctx, schemaDDL); err != nil {
 		return err
 	}
-	return s.stampWriter()
+	return s.stampWriter(ctx)
 }
 
 // queryDomainCounts returns the number of knowledge units per domain tag.
@@ -397,8 +396,7 @@ func (s *Store) scanUnits(ctx context.Context, sql string, args ...any) ([]cq.Kn
 
 // stampWriter records the SDK version and timestamp in the metadata table
 // so operators can identify which SDK last modified the database.
-func (s *Store) stampWriter() error {
-	ctx := context.Background()
+func (s *Store) stampWriter(ctx context.Context) error {
 	tag := fmt.Sprintf(writerTagFmt, runtime.Version())
 	now := time.Now().UTC().Format(time.RFC3339)
 	batch := &pgx.Batch{}
@@ -415,6 +413,16 @@ func insertDomains(ctx context.Context, tx pgx.Tx, unitID string, domains []stri
 		}
 	}
 	return nil
+}
+
+// rollback discards tx using a context independent of the caller's, so cleanup
+// runs even after the caller cancels — otherwise a cancelled rollback churns
+// the pooled connection instead of releasing it. No-op after a successful
+// Commit; the returned error is not actionable.
+func rollback(tx pgx.Tx) {
+	ctx, cancel := context.WithTimeout(context.Background(), rollbackTimeout)
+	defer cancel()
+	_ = tx.Rollback(ctx)
 }
 
 // marshal serializes a KnowledgeUnit to JSON for JSONB storage.
