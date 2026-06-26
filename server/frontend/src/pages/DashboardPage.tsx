@@ -18,6 +18,7 @@ import { KnowledgeUnitModal } from "../components/KnowledgeUnitModal"
 import { StatusBadge } from "../components/StatusBadge"
 import type { ReviewStatsResponse } from "../types"
 import { timeAgo } from "../utils"
+import { useIsDark } from "../hooks/useIsDark"
 
 const CONFIDENCE_COLORS: Record<string, string> = {
   "0.0-0.3": "bg-red-200",
@@ -26,22 +27,6 @@ const CONFIDENCE_COLORS: Record<string, string> = {
   "0.8-1.0": "bg-green-400",
 }
 
-function useIsDark() {
-  const [isDark, setIsDark] = useState(
-    document.documentElement.classList.contains("dark"),
-  )
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      setIsDark(document.documentElement.classList.contains("dark"))
-    })
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class"],
-    })
-    return () => observer.disconnect()
-  }, [])
-  return isDark
-}
 
 export function DashboardPage() {
   const { setPendingCount } = useOutletContext<{
